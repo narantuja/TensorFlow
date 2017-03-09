@@ -8,6 +8,12 @@ import glob
 
 CROPPED_IMAGE_DIM = 28
 COLOR_CHANNELS = 3
+TRAIN_BATCH_SIZE = 10
+TRAIN_EPOCH_SIZE = 10
+TRAIN_STEPS = 1
+TEST_BATCH_SIZE = 5
+TEST_EPOCH_SIZE = 5
+TEST_STEPS = 1
 
 
 def weight_variable(shape):
@@ -28,8 +34,8 @@ def max_pool_2x2(x):
     return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
 
-def read_images(gif_files):
-    print('Extracting training images from GIF files.')
+def read_gif_batch(gif_files, batch_size):
+    print('Extracting images from GIF files.')
 
     filename_queue = tf.train.string_input_producer(gif_files)
 
@@ -46,48 +52,53 @@ def read_images(gif_files):
     # cast resized_image int32 to float32
     reshaped_image = tf.cast(resized_image, tf.float32)
 
-    return resized_image
+    # return reshaped_image
+    return _generate_image_batch(reshaped_image, key, batch_size)
 
 
-train_images = glob.glob("stare_data/train/*.gif")
-gifs = read_images(train_images)
+def _generate_image_batch(local_image, local_label, batch_size):
+    [images, labels] = tf.train.batch([local_image, local_label], batch_size=batch_size)
+    return [images, labels]
+
+
+# tf.train.match_filenames_once("./images/*.jpg")
+
+train_image_files = glob.glob("stare_data/train/*.gif")
+train_images_batch = read_gif_batch(train_image_files, TRAIN_BATCH_SIZE)
+
+test_image_files = glob.glob("stare_data/test/*.gif")
+test_images_batch = read_gif_batch(test_image_files, TEST_BATCH_SIZE)
 
 with tf.Session() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
 
-    for f in train_images:
-        print("Next image:")
-        print(sess.run(gifs))
+    for step in xrange(TRAIN_STEPS):
+        print("Next train image in step ",
+              step, ", train batch size ", TRAIN_BATCH_SIZE, ", train epoch size ", TRAIN_EPOCH_SIZE)
+        print(sess.run(train_images_batch))
+
+    for step in xrange(TEST_STEPS):
+        print("Next test image in step ", step,
+              ", test batch size ", TEST_BATCH_SIZE, ", test epoch size ", TEST_EPOCH_SIZE)
+        print(sess.run(test_images_batch))
 
     coord.request_stop()
     coord.join(threads)
-
-
-def extract_labels(f):
-    """Extract the labels into a 1D uint8 numpy array [index].
-
-      Args:
-        f: A file object that can be passed into a csv reader.
-
-      Returns:
-        labels: a 1D unit8 numpy array.
-      """
-    print('Extracting', f.name)
 
 
 def read_data_sets(data_dir, validation_size=0):
     train_dir = os.path.join(data_dir, "train")
     test_dir = os.path.join(data_dir, "test")
 
-    train_images = read_images(train_dir)
+    train_images = read_gif_batch(train_dir, TRAIN_BATCH_SIZE)
 
     local_file = os.path.join(train_dir, "trainLabels.csv")
 
     with open(local_file, 'rb') as f:
         train_labels = extract_labels(f)
 
-    test_images = read_images(test_dir)
+    test_images = read_gif_batch(test_dir, TEST_BATCH_SIZE)
 
     local_file = os.path.join(test_dir, "testLabels.csv")
 
@@ -109,6 +120,18 @@ def read_data_sets(data_dir, validation_size=0):
     test = DataSet(test_images, test_labels)
 
     return base.Datasets(train=train, validation=validation, test=test)
+
+
+def extract_labels(f):
+    """Extract the labels into a 1D uint8 numpy array [index].
+
+      Args:
+        f: A file object that can be passed into a csv reader.
+
+      Returns:
+        labels: a 1D unit8 numpy array.
+      """
+    print('Extracting', f.name)
 
 
 class DataSet(object):
