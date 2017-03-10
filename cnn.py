@@ -45,7 +45,6 @@ def max_pool_2x2(x):
 
 
 def read_image_and_label_list(list_filename):
-
     f = open(list_filename, 'r')
 
     image_list = []
@@ -63,7 +62,6 @@ def read_image_and_label_list(list_filename):
 
 
 def read_gif_from_disk(local_input_queue, train_dir):
-
     local_label = local_input_queue[1]
     image_filename = train_dir + local_input_queue[0] + ".gif"
 
@@ -85,6 +83,16 @@ def read_next_batch(local_input_queue, data_dir, batch_size):
     image, label = read_gif_from_disk(local_input_queue, data_dir)
     return tf.train.batch([image, label], batch_size=batch_size)
 
+
+def dense_to_one_hot(labels_dense, num_classes):
+    """Convert class labels from scalars to one-hot vectors."""
+    num_labels = labels_dense.shape[0]
+    index_offset = numpy.arange(num_labels) * num_classes
+    labels_one_hot = numpy.zeros((num_labels, num_classes))
+    labels_one_hot.flat[index_offset + labels_dense.ravel()] = 1
+    return labels_one_hot
+
+
 # Get the training data
 train_images, train_labels = read_image_and_label_list(TRAIN_DATA_DIR + LABELS_FILENAME)
 train_input_queue = tf.train.slice_input_producer([train_images, train_labels])
@@ -95,7 +103,59 @@ test_images, test_labels = read_image_and_label_list(TEST_DATA_DIR + LABELS_FILE
 test_input_queue = tf.train.slice_input_producer([test_images, test_labels])
 test_image_batch, test_label_batch = read_next_batch(test_input_queue, TEST_DATA_DIR, TEST_BATCH_SIZE)
 
+# Build TensorFlow model
+x = tf.placeholder(tf.float32, [None, 784])
+W = tf.Variable(tf.zeros([784, 10]))
+b = tf.Variable(tf.zeros([10]))
+
+y = tf.nn.softmax(tf.matmul(x, W) + b)
+
+# training
+y_ = tf.placeholder(tf.float32, [None, 10])
+
+# first convolutional layer
+W_conv1 = weight_variable([5, 5, 1, 32])
+b_conv1 = bias_variable([32])
+
+x_image = tf.reshape(x, [-1, 28, 28, 1])
+
+h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
+h_pool1 = max_pool_2x2(h_conv1)
+
+# second convolutional layer
+W_conv2 = weight_variable([5, 5, 32, 64])
+b_conv2 = bias_variable([64])
+
+h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
+h_pool2 = max_pool_2x2(h_conv2)
+
+# densely connected layer
+W_fc1 = weight_variable([7 * 7 * 64, 1024])
+b_fc1 = bias_variable([1024])
+
+h_pool2_flat = tf.reshape(h_pool2, [-1, 7 * 7 * 64])
+h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+
+# dropout
+keep_prob = tf.placeholder(tf.float32)
+h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
+
+# readout layer
+W_fc2 = weight_variable([1024, 10])
+b_fc2 = bias_variable([10])
+
+y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
+
+cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
+train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
+
+# evaluate the trained model
+correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
+accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
 with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+
     print("List of used training images:")
     print(sess.run([train_images, train_labels]))
     print("List of used test images:")
@@ -119,70 +179,13 @@ with tf.Session() as sess:
     coord.request_stop()
     coord.join(threads)
 
+    train_labels_one_hot = dense_to_one_hot(train_label_batch, 10)
+    test_labels_one_hot = dense_to_one_hot(train_label_batch, 10)
 
-# x = tf.placeholder(tf.float32, [None, 784])
-# W = tf.Variable(tf.zeros([784, 10]))
-# b = tf.Variable(tf.zeros([10]))
-#
-# y = tf.nn.softmax(tf.matmul(x, W) + b)
-#
-# # training
-# y_ = tf.placeholder(tf.float32, [None, 10])
-#
-# # first convolutional layer
-# W_conv1 = weight_variable([5, 5, 1, 32])
-# b_conv1 = bias_variable([32])
-#
-# x_image = tf.reshape(x, [-1, 28, 28, 1])
-#
-# h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
-# h_pool1 = max_pool_2x2(h_conv1)
-#
-# # second convolutional layer
-# W_conv2 = weight_variable([5, 5, 32, 64])
-# b_conv2 = bias_variable([64])
-#
-# h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
-# h_pool2 = max_pool_2x2(h_conv2)
-#
-# # densely connected layer
-# W_fc1 = weight_variable([7 * 7 * 64, 1024])
-# b_fc1 = bias_variable([1024])
-#
-# h_pool2_flat = tf.reshape(h_pool2, [-1, 7 * 7 * 64])
-# h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
-#
-# # dropout
-# keep_prob = tf.placeholder(tf.float32)
-# h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
-#
-# # readout layer
-# W_fc2 = weight_variable([1024, 10])
-# b_fc2 = bias_variable([10])
-#
-# y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
-#
-# cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
-# train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
-#
-# # evaluate the trained model
-# correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
-# accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-#
-# # read data
-# input_data_sets = read_data_sets("stare_data")
-#
-# # launch the session
-# sess = tf.InteractiveSession()
-# sess.run(tf.global_variables_initializer())
-#
-# for i in range(200):
-#     batch = input_data_sets.next_batch(50)
-#     if i % 10 == 0:
-#         train_accuracy = accuracy.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0})
-#         print("step %d, training accuracy %g" % (i, train_accuracy))
-#     train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
-#
-# print("test accuracy %g" % accuracy.eval(feed_dict={x: input_data_sets.test.images,
-#                                                     y_: input_data_sets.test.labels,
-#                                                     keep_prob: 1.0}))
+    for step in xrange(TRAIN_STEPS):
+        print("Training step", step, "with all data")
+        train_step.run(feed_dict={x: train_image_batch, y_: train_labels_one_hot, keep_prob: 0.5})
+        train_accuracy = accuracy.eval(feed_dict={x: train_image_batch, y_: train_labels_one_hot, keep_prob: 1.0})
+        print("step %d, training accuracy %g" % (step, train_accuracy))
+
+    print("test accuracy %g" % accuracy.eval(feed_dict={x: test_image_batch, y_: test_labels_one_hot, keep_prob: 1.0}))
