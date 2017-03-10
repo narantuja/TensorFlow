@@ -1,10 +1,7 @@
-from tensorflow.contrib.learn.python.learn.datasets import base
 # noinspection PyUnresolvedReferences
 from six.moves import xrange  # pylint: disable=redefined-builtin
-import os
 import tensorflow as tf
 import numpy
-import glob
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 
@@ -12,6 +9,7 @@ from tensorflow.python.framework import ops
 CROPPED_IMAGE_DIM = 28
 COLOR_CHANNELS = 3
 LABELS_FILENAME = "labels.csv"
+NUM_CLASSES = 10
 
 # training global variables
 TRAIN_BATCH_SIZE = 10
@@ -56,7 +54,9 @@ def read_image_and_label_list(list_filename):
         label_list.append(int(filelabel))
 
     images_tensor = ops.convert_to_tensor(image_list, dtype=dtypes.string)
-    labels_tensor = ops.convert_to_tensor(label_list, dtype=dtypes.int32)
+
+    one_hot_label_list = dense_to_one_hot(numpy.asarray(label_list), NUM_CLASSES)
+    labels_tensor = ops.convert_to_tensor(one_hot_label_list, dtype=dtypes.int32)
 
     return images_tensor, labels_tensor
 
@@ -179,13 +179,10 @@ with tf.Session() as sess:
     coord.request_stop()
     coord.join(threads)
 
-    train_labels_one_hot = dense_to_one_hot(train_label_batch, 10)
-    test_labels_one_hot = dense_to_one_hot(train_label_batch, 10)
-
     for step in xrange(TRAIN_STEPS):
         print("Training step", step, "with all data")
-        train_step.run(feed_dict={x: train_image_batch, y_: train_labels_one_hot, keep_prob: 0.5})
-        train_accuracy = accuracy.eval(feed_dict={x: train_image_batch, y_: train_labels_one_hot, keep_prob: 1.0})
+        train_step.run(feed_dict={x: train_image_batch, y_: train_label_batch, keep_prob: 0.5})
+        train_accuracy = accuracy.eval(feed_dict={x: train_image_batch, y_: train_label_batch, keep_prob: 1.0})
         print("step %d, training accuracy %g" % (step, train_accuracy))
 
-    print("test accuracy %g" % accuracy.eval(feed_dict={x: test_image_batch, y_: test_labels_one_hot, keep_prob: 1.0}))
+    print("test accuracy %g" % accuracy.eval(feed_dict={x: test_image_batch, y_: test_label_batch, keep_prob: 1.0}))
